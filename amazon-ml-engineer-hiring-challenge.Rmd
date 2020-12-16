@@ -1,0 +1,2937 @@
+---
+title: "Amazon ML Engineer Hiring Challenge"
+author: "Hariprasath Venkatraman"
+
+output: 
+    html_notebook:
+      code_folding: "hide"
+      
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T,warning = F,error = F,
+                      fig.width = 12,fig.height = 8,
+                      message = F,fig.align = "center",
+                      tidy=FALSE)
+```
+
+<br>
+
+#### Import Necessary Packages
+
+
+```{r}
+{
+  library(tidyverse) # for data manipulation and plot
+  library(psych) # to describe a column
+  library(DT) # to show data in table format
+  library(ggpubr) #summary plot
+  library(randomForest) # for random forest model
+  library(missRanger) #for imputing a missing value
+  library(caret) # to generate stratified sample from train data
+  library(patchwork) # to arrange the chart
+  library(ggcorrplot) # for correlation plot
+  
+}
+
+```
+<br>
+
+#### Import Train and Test Dataset
+
+```{r}
+train <- read.csv("train.csv",header = T, na.strings = c(""," ","NA"))
+
+test <- read.csv("test.csv",header = T, na.strings = c(""," ","NA"))
+
+```
+<br>
+
+#### Let's analyze the structure of the train and test dataset
+
+<br>
+
+## {.tabset .tabset-fade .tabset-pills}
+
+
+### Train Dataset
+
+```{r}
+str(train) 
+```
+
+### Test Dataset
+
+```{r}
+str(test)
+```
+
+
+##
+
+<br>
+
+#### Let's analyze the summary of each numerical variable in the train and test dataset
+
+
+## {.tabset .tabset-fade .tabset-pills}
+
+
+
+### Train Dataset
+
+```{r}
+datatable(
+  describe(train[,c(2:9)], IQR = T),
+  extensions = 'FixedColumns',
+  options = list(
+  dom = 't',
+  scrollX = TRUE,
+  fixedColumns = TRUE
+  )
+  )
+```
+
+### Test Dataset
+
+```{r}
+datatable(
+  describe(test[,c(2:9)] , IQR = T),
+  extensions = 'FixedColumns',
+  options = list(
+  dom = 't',
+  scrollX = TRUE,
+  fixedColumns = TRUE
+  )
+  )
+```
+
+
+##
+
+
+
+<br>
+
+#### Let's view the sample data of train and test dataset.
+
+
+## {.tabset .tabset-fade .tabset-pills}
+
+
+
+### Train Dataset
+
+```{r}
+datatable(
+  head(train),
+  extensions = 'FixedColumns',
+  options = list(
+  dom = 't',
+  scrollX = TRUE,
+  fixedColumns = TRUE
+  )
+  )
+```
+
+### Test Dataset
+
+```{r}
+datatable(
+  head(test) ,
+  extensions = 'FixedColumns',
+  options = list(
+  dom = 't',
+  scrollX = TRUE,
+  fixedColumns = TRUE
+  ))
+  
+```
+
+##
+
+
+<br>
+
+### Exploratory Data Analysis
+
+<br>
+
+### Customer Category Variable(Target)
+
+<br>
+
+
+#### Let's check the dependent variable customer category distribution. The customer category variable in binary format(0,1) so for the visualization purpose change those variable levels into 0 as Group_0 and 1 as Group_1.
+
+
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  group_by(customer_category) %>%
+  summarise(counts = n()) %>%
+  mutate(perc = counts/sum(counts)) %>%
+  ungroup() %>%
+  ggplot(aes(
+    x = as.factor(customer_category),
+    y = perc,
+    label = scales::percent(perc,accuracy = .01),
+    fill = as.factor(customer_category)
+  )) +
+  geom_bar(stat = "identity")+
+  scale_fill_brewer(palette = "Dark2")+
+  geom_text(hjust=0.5,vjust=1,color="white",
+            fontface="bold",size=5 )+
+  scale_y_continuous(labels = scales::percent )+
+  labs(x="Category",
+       y="",
+       title = "Customer Category",
+       caption = "Source: Hackerearth")+
+  theme_dark()+
+  theme(
+    legend.position = "none",
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    plot.title =  element_text(face = "bold",hjust = 0.5)
+  )
+
+```
+
+
+#### The above plot shows that the customer category biased to  group_0 and clearly shows that highly imbalanced class. In the modeling part, the class imbalance issue will be handled in various techniques(data level, algorithmic level approach)
+
+<br>
+
+#### Let's's see the distribution of each numerical variable in the train and test dataset.
+
+
+## {.tabset .tabset-fade .tabset-pills}
+
+
+
+### Train Dataset
+
+```{r}
+train %>% gather("var","val",c(2:9)) %>%
+  ggplot(aes(x=val,fill=var))+
+  geom_histogram()+
+  facet_wrap(~var,scales = "free")+
+  labs(caption = "Source: Hackerearth")+
+  theme(
+    legend.position = "none",
+    strip.background.x =   element_rect(fill = "transparent"),
+    strip.text.x = element_text(color="black",size = 10,
+                                face="bold"),
+    panel.grid = element_blank(),
+    plot.caption = element_text(face = "bold"),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+```
+
+### Test Dataset
+
+```{r}
+test %>% gather("var","val",c(2:9)) %>%
+  ggplot(aes(x=val,fill=var))+
+  geom_histogram()+
+  facet_wrap(~var,scales = "free")+
+  labs(caption = "Source: Hackerearth")+
+  theme(
+    legend.position = "none",
+    strip.background.x =   element_rect(fill = "transparent"),
+    strip.text.x = element_text(color="black",size = 10,
+                                face="bold"),
+    panel.grid = element_blank(),
+    plot.caption = element_text(face = "bold"),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+  
+```
+
+##
+
+
+
+<br>
+
+
+## {.tabset .tabset-fade .tabset-pills}
+
+
+
+**Click the button to view the chart for each column**
+
+### Customer Visit Score
+
+
+<br>
+
+
+#### Let's check the score based on the customer how regularly visits the website.
+
+
+
+#### First, let's perform the Univariate analysis and see the customer visit score distribution.
+
+
+#### For the visualization can use the histogram and boxplot. The histogram will say how the score has distributed that is whether it is normally distributed or skewed.
+
+
+
+#### Boxplot will also explain the distribution with outlier points.
+
+
+#### For the histogram the bins are selected by using  Freedman–Diaconis rule.
+
+
+#### Let's look a quick summary of the customer visit score
+
+```{r}
+summary(train$customer_visit_score)
+
+```
+
+
+#### The summary shows that there is no negative customer visit score and the mean is 19.061.
+
+
+
+#### To get and show the boxplot statistics summary let's create a function to get the box plot summary.
+
+```{r}
+box_summary <- function(columns){
+
+cal <- boxplot.stats(columns)$stats
+return(cal)
+}
+
+```
+
+
+#### binwidth selected by using Freedman–Diaconis rule.
+
+```{r}
+visit_scorebin<-hist(train$customer_visit_score,breaks = "FD",plot = F)
+
+```
+
+<br>
+
+```{r}
+tr_cust_score_his <- train %>%
+  na.omit() %>%
+  ggplot() +
+  aes(x = customer_visit_score) +
+  geom_histogram(breaks = visit_scorebin$breaks,
+                 color="red",
+                 fill="lightcoral"
+                 
+  ) +
+  geom_vline(aes(xintercept = mean(customer_visit_score)),
+             col='blue',size=2)+
+  
+  theme_minimal() +
+  labs(x = "",
+       y = "",
+       subtitle = "Histogram",
+       title = "Customer Visit Score Distribution"
+  ) +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+
+
+tr_cust_score_box <- train %>%
+  ggplot(aes(y="",x= customer_visit_score,fill="lightcoral")) +
+  geom_boxplot(varwidth=T,
+               outlier.color  = "red",
+               outlier.size = 2) +
+  
+  stat_summary( geom="text", fun = box_summary,
+                size=5,vjust=1,
+                aes(
+                  label=sprintf("%1.1f", ..x..))) +
+  labs(x = "Customer Visit Score",
+       y = "",
+       subtitle = "Box Plot",
+       caption = "Source: Hackerearth",
+       title = "") +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+
+
+tr_cust_score_his/tr_cust_score_box
+```
+
+#### The above histogram chart says that the customer visit scores are normally distributed and there is no skewness.
+
+
+#### The boxplot says that that the median is 18.8 and there is more than one outlier data point (red points) outside the third quartile.
+
+<br>
+
+#### Let's analyze the customer visit score with more than one variable.
+
+
+#### The following chart to analyze the customer visit score by various customer_active_segment and customer category.
+
+
+```{r}
+
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_visit_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ customer_active_segment)+
+  labs(x="Customer Visit Score",y="",
+       caption = "Source: Hackerearth",
+       title = "Customer Visit Score Distribution in Each Customer Segement")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    plot.caption = element_text(face = "bold"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+
+```
+
+#### The above chart shows that the customer visit score range has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+#### In the next plot let's see any outlier points in customer visit score by various customer_active_segment and their category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(customer_active_segment,
+             customer_category) %>%
+    select(customer_active_segment,customer_category,
+           customer_visit_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_visit_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1","median","q3"),
+  labeller = "label_value",
+  facet.by = "customer_active_segment",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)),
+  legend = "bottom"
+)
+
+```
+
+
+#### The above chart shows that there are a lot of outliers in the A Segment and group 0 category.
+
+#### group 1 category has less number of outliers in all customer segment than group_0 category.
+
+
+<br>
+
+#### The following chart to analyze the customer visit score by various categories of Anonymized variable(X1) and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_visit_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ X1)+
+  labs(x="Customer Visit Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Visit Score Distribution in Each categories of Anonymized Variable(X1) ")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+     plot.caption = element_text(face = "bold"),
+      plot.title =  element_text(face = "bold",hjust = 0.5),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+
+```
+
+
+#### The above chart shows that customer visit score have a different distribution in each category of Anonymized variables(X1) and customer category.
+
+
+#### Anonymized variable(X1) Category E has less number of customers.
+
+<br>
+
+#### In the next plot let's see any outlier points in customer visit score by various categories of Anonymized variables(X1) and customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(X1,
+             customer_category) %>%
+    select(X1,customer_category,
+           customer_visit_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_visit_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1","median","q3"),
+  labeller = "label_value",
+  facet.by = "X1",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)), legend = "bottom"
+)
+
+```
+
+
+#### The above chart shows that the Anonymized variable(X1) not have more number of outliers in all levels of Anonymized variable(X1).
+
+
+<br>
+
+### Customer Product Search Score
+
+<br>
+
+#### Let's check the customer_product_search_score
+
+
+#### customer product search score, the score is based on the type of product and its price range searched by the customer.
+
+
+#### As mentioned in the problem statement, a customer searching for a laptop will have more weightage than someone looking for a book.
+
+
+#### Let's look quick summary of customer product search score
+
+
+
+```{r}
+summary(train$customer_product_search_score)
+
+```
+
+
+#### The summary shows a negative search score is there and the mean is 5.2748.
+
+
+#### binwidth selected by using Freedman–Diaconis rule.
+
+
+```{r}
+prod_sear_scorebin<-hist(train$customer_product_search_score,breaks = "FD",plot = F)
+```
+
+<br>
+
+
+```{r}
+prod_sear_score_his <- train %>%
+  na.omit() %>%
+  ggplot() +
+  aes(x = customer_product_search_score) +
+  geom_histogram(breaks = prod_sear_scorebin$breaks,
+                 color="red",
+                 fill="lightcoral"
+                 
+  ) +
+  geom_vline(aes(xintercept = mean(customer_product_search_score)),
+             col='blue',size=2)+
+  
+  theme_minimal() +
+  labs(x = "",
+       y = "",
+       subtitle = "Histogram",
+       title = "Customer Product Search Score Distribution"
+  ) +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+
+
+
+
+prod_sear_score_box <- train %>%
+  ggplot(aes(y="",x= customer_product_search_score,fill="lightcoral")) +
+  geom_boxplot(varwidth=T,
+               outlier.color  = "red",
+               outlier.size = 2) +
+  
+  stat_summary( geom="text", fun = box_summary ,
+                size=5,vjust=1,
+                #fun.args=list(probs=c(0,.5,.25,.75)),
+                aes(
+                  label=sprintf("%1.2f", ..x..))) +
+  labs(x = "Customer Product Search Score",
+       y = "",
+       subtitle = "Box Plot",
+       caption = "Source: Hackerearth",
+       title = "") +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+
+
+prod_sear_score_his/prod_sear_score_box
+
+```
+
+
+#### The above histogram chart says that the customer product search score is normally distributed and there is no skewness.
+
+
+#### The box plot explains there are outliers(high weightage product search score) in the outside upper and lower limits.
+<br>
+
+#### Let's analyze the customer product search score with more than one variable.
+
+
+
+#### The following chart to analyze the customer product search score by various customer_active_segment and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_product_search_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ customer_active_segment)+
+  labs(x="Customer Product Search Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Product Search Score Distribution in Each Customer Segement")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+```
+
+
+#### The above chart shows that the customer product search score range has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+#### In the next plot let's see any outlier points in customer product search score by various customer_active_segment and Customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(customer_active_segment,
+             customer_category) %>%
+    select(customer_active_segment,customer_category,
+           customer_product_search_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_product_search_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1","median","q3"),
+  labeller = "label_value",
+  facet.by = "customer_active_segment",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)),
+  legend = "bottom"
+)
+```
+
+
+
+#### The above chart shows that there are a lot of outliers(high weightage product search score) in B, C, and D active Segment and customer category.
+
+
+<br>
+
+
+#### The following chart to analyze the customer product search score by various category of Anonymized variables(X1) and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_product_search_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ X1)+
+  labs(x="Customer Product Search Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Product Search Score Distribution in Each Category of Anonymized variable(X1)")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+
+```
+
+
+#### The above chart shows that the customer product search score range has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+
+#### Let's check the customer product search score by various categories of Anonymized variables(X1) and customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(X1,
+             customer_category) %>%
+    select(X1,customer_category,
+           customer_product_search_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_product_search_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1","median","q3"),
+  labeller = "label_value",
+  
+  facet.by = "X1",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)
+  ) ,legend = "bottom"
+)
+```
+
+
+#### The above chart shows that there are a lot of outliers(high weightage product search score) in categories A, AA, BA, and F of Anonymized variables(X1) and customer category.
+
+<br>
+
+
+### Customer Click Score
+
+<br>
+
+#### Let's check the customer ctr score
+
+
+#### customer ctr score, the score based on the searched link clicks.
+
+
+#### For example, a customer has searched for headphones then so many brand links will appear, in that how many links customers will click. The number of link clicks will be converted into scores.
+
+
+
+#### Let's look quick summary of the customer ctr score
+
+
+```{r}
+summary(train$customer_ctr_score)
+```
+
+
+#### The summary shows a negative ctr score is there and the mean is 0.17591.
+
+
+
+#### binwidth selected by using Freedman–Diaconis rule.
+
+```{r}
+customer_ctr_scorebin<-hist(train$customer_ctr_score,breaks = "FD",plot = F)
+```
+
+<br>
+
+
+```{r}
+customer_ctr_score_his <- train %>%
+  na.omit() %>%
+  ggplot() +
+  aes(x = customer_ctr_score) +
+  geom_histogram(breaks = customer_ctr_scorebin$breaks,
+                 color="red",
+                 fill="lightcoral"
+                 
+  ) +
+  geom_vline(aes(xintercept = mean(customer_ctr_score)),
+             col='blue',size=2)+
+  
+  theme_minimal() +
+  labs(x = "",
+       y = "",
+       subtitle = "Histogram",
+       title = "Customer Ctr Score Distribution"
+  ) +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+customer_ctr_score_box <- train %>%
+  ggplot(aes(y="",x= customer_ctr_score,fill="lightcoral")) +
+  geom_boxplot(varwidth=T,
+               outlier.color  = "red",
+               outlier.size = 2) +
+  
+  stat_summary( geom="text", fun = box_summary ,
+                size=4,vjust=1,
+                #fun.args=list(probs=c(0,.5,.25,.75)),
+                aes(
+                  label=sprintf("%0.1f", ..x..))) +
+  labs(x = "Customer Ctr Score",
+       y = "",
+       subtitle = "Box Plot",
+       caption = "Source: Hackerearth",
+       title = "") +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+
+
+customer_ctr_score_his/customer_ctr_score_box
+```
+
+
+#### The above histogram chart says that the customer ctr score is right-skewed(most of the click link score falls below the mean).
+
+
+#### The boxplot explains there are outliers in the outside upper and lower limits.
+
+
+<br>
+
+#### Let's analyze the customer ctr score with more than one variable.
+
+
+#### The following chart to analyze the customer ctr score by various customer_active_segment and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_ctr_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ customer_active_segment)+
+  labs(x="Customer Ctr Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Ctr Score Distribution in Each Customer Segement")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+```
+
+
+#### The above chart shows that the customer ctr score range has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+#### In the next plot let's see any outlier points in customer ctr score by various customer_active_segment and Customer category.
+
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(customer_active_segment,
+             customer_category) %>%
+    select(customer_active_segment,customer_category,
+           customer_ctr_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_ctr_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1","median","q3"),
+  labeller = "label_value",
+  facet.by = "customer_active_segment",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)),
+  legend = "bottom"
+)
+
+```
+
+
+#### The above chart shows that the group_0 customer category has more number of outliers in all the active Segments.
+
+<br>
+
+
+#### The following chart to analyze the customer ctr score by various category of Anonymized variable(X1) and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_ctr_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ X1)+
+  labs(x="Customer Ctr Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Ctr Score Distribution in Each Category of Anonymized variable(X1)")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+```
+
+
+#### The above chart shows that the Customer Ctr Score has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+#### Let's check the customer ctr score by various categories of Anonymized variable(X1) and customer category.
+
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(X1,
+             customer_category) %>%
+    select(X1,customer_category,
+           customer_ctr_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_ctr_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1","median","q3"),
+  labeller = "label_value",
+  
+  facet.by = "X1",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)
+  ) ,legend = "bottom"
+)
+
+```
+
+
+#### The above chart shows that there are a lot of outliers in all categories of Anonymized variable(X1) and customer category.
+
+
+<br>
+
+
+### Customer Stay Score
+
+
+<br>
+
+
+#### Let's check the customer stay score
+
+
+#### customer stay score, the score based on the average time spent on the website by the customer.
+
+
+#### Let's look quick summary of customer stay score
+```{r}
+summary(train$customer_stay_score)
+```
+
+
+#### The summary shows a negative search score is there and the mean is 0.37423.
+
+
+
+#### binwidth selected by using Freedman–Diaconis rule.
+
+```{r}
+customer_stay_scorebin<-hist(train$customer_stay_score,breaks = "FD",plot = F)
+```
+
+<br>
+
+
+```{r}
+customer_stay_score_his <- train %>%
+  na.omit() %>%
+  ggplot() +
+  aes(x = customer_stay_score) +
+  geom_histogram(breaks = customer_stay_scorebin$breaks,
+                 color="red",
+                 fill="lightcoral"
+                 
+  ) +
+  geom_vline(aes(xintercept = mean(customer_stay_score)),
+             col='blue',size=2)+
+  
+  theme_minimal() +
+  labs(x = "",
+       y = "",
+       subtitle = "Histogram",
+       title = "Customer Stay Score Distribution"
+  ) +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+
+customer_stay_score_box <- train %>%
+  ggplot(aes(y="",x= customer_stay_score,fill="lightcoral")) +
+  geom_boxplot(varwidth=T,
+               outlier.color  = "red",
+               outlier.size = 2) +
+  
+  # stat_summary( geom="text", fun = box_summary ,
+  #               size=4,vjust=1,
+  #               #fun.args=list(probs=c(0,.5,.25,.75)),
+  #               aes(
+  #                 label=sprintf("%0.1f", ..x..))) +
+  labs(x = "Customer Stay Score",
+       y = "",
+       subtitle = "Box Plot",
+       caption = "Source: Hackerearth",
+       title = "") +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+box_summary(train$customer_stay_score)
+
+
+customer_stay_score_his/customer_stay_score_box
+
+
+```
+
+
+#### The above histogram chart says that the customer stay score is right-skewed(most of the customer stay score falls below the mean).
+
+#### The box plot explains there are outliers in the outside upper and lower limits.
+
+
+<br>
+
+
+#### Let's analyze the customer stay score with more than one variable.
+
+
+#### The following chart to analyze the customer stay score by various customer_active_segment and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_stay_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ customer_active_segment)+
+  labs(x="Customer Stay Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Stay Score Distribution in Each Customer Segement")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+
+```
+
+
+#### The above chart shows that the customer stay score range has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+
+#### In the next plot let's see any outlier points in customer stay score by various customer_active_segment and Customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(customer_active_segment,
+             customer_category) %>%
+    select(customer_active_segment,customer_category,
+           customer_stay_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_stay_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = "iqr",
+  labeller = "label_value",
+  facet.by = "customer_active_segment",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)),
+  legend = "bottom"
+)
+```
+
+
+
+#### The above chart shows that both customer categories have more number of outliers in the B, C, and D active Segment.
+
+
+<br>
+
+
+#### The following chart to analyze the customer ctr score by various category of Anonymized variable(X1) and customer category.
+
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_ctr_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ X1)+
+  labs(x="Customer Ctr Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Ctr Score Distribution in Each Category of Anonymized variable(X1)")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+
+```
+
+
+#### The above chart shows that the Customer Ctr Score distribution has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+
+#### Let's check the customer ctr score by various categories of Anonymized variable(X1) and customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(X1,
+             customer_category) %>%
+    select(X1,customer_category,
+           customer_ctr_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_ctr_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = "iqr",
+  labeller = "label_value",
+  
+  facet.by = "X1",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)
+  ) ,legend = "bottom"
+)
+
+```
+
+#### The above chart shows that the group 0 customer category has more number outliers in all categories of the Anonymized variable(X1).
+
+<br>
+
+
+### Customer Frequency Score
+
+
+<br>
+
+
+
+#### Let's check the customer frequency score
+
+#### customer frequency score, the score based on the number of times websites visited in a day by the customer.
+
+
+
+#### Let's look quick summary of customer frequency score
+```{r}
+summary(train$customer_frequency_score)
+
+```
+
+
+#### summary shows no negative search score are there and the mean is 2.37689
+
+
+
+#### binwidth selected by using Freedman–Diaconis rule.
+```{r}
+customer_frequency_scorebin<-hist(train$customer_frequency_score,breaks = "FD",plot = F)
+
+```
+
+<br>
+
+
+```{r}
+customer_frequency_score_his <- train %>%
+  na.omit() %>%
+  ggplot() +
+  aes(x = customer_frequency_score) +
+  geom_histogram(breaks = customer_frequency_scorebin$breaks,
+                 color="red",
+                 fill="lightcoral"
+                 
+  ) +
+  geom_vline(aes(xintercept = mean(customer_frequency_score)),
+             col='blue',size=2)+
+  
+  theme_minimal() +
+  labs(x = "",
+       y = "",
+       subtitle = "Histogram",
+       title = "Customer Frequency Score Distribution"
+  ) +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+
+
+
+
+customer_frequency_score_box <- train %>%
+  ggplot(aes(y="",x= customer_frequency_score,fill="lightcoral")) +
+  geom_boxplot(varwidth=T,
+               outlier.color  = "red",
+               outlier.size = 2) +
+  
+   # stat_summary( geom="text", fun = box_summary ,
+   #               size=4,vjust=1,
+   #               #fun.args=list(probs=c(0,.5,.25,.75)),
+   #              aes(
+   #                 label=sprintf("%0.1f", ..x..))) +
+  labs(x = "Customer Frequency Score",
+       y = "",
+       subtitle = "Box Plot",
+       caption = "Source: Hackerearth",
+       title = "") +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+box_summary(train$customer_frequency_score)
+
+customer_frequency_score_his/customer_frequency_score_box
+
+
+```
+
+
+
+#### The above histogram chart says that the customer frequency score is right-skewed(most of the customer frequency score falls below the mean).
+
+
+#### The box plot explains there are outliers in the above upper limits.
+
+
+<br>
+
+
+#### Let's analyze the customer frequency score with more than one variable.
+
+
+#### The following chart to analyze the customer frequency score  by various customer_active_segment and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_frequency_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ customer_active_segment)+
+  labs(x="Customer Frequency Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Frequency Score Distribution in Each Customer Segement")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+```
+
+
+#### The above chart shows that the customer frequency score range has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+#### In the next plot let's see any outlier points in customer frequency score by various customer active segment and Customer category.
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(customer_active_segment,
+             customer_category) %>%
+    select(customer_active_segment,customer_category,
+           customer_frequency_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_frequency_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1", "median","q3"),
+  labeller = "label_value",
+  facet.by = "customer_active_segment",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)),
+  legend = "bottom"
+)
+
+```
+
+
+#### The above chart shows that the group 0 customer category has more number of outliers in all active Segments.
+
+<br>
+
+
+#### The following chart to analyze the customer frequency score by various category of Anonymized variable(X1) and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_frequency_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ X1)+
+  labs(x="Customer Frequency Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Frequency Score Distribution in Each Category of Anonymized variable(X1)")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+```
+
+#### The above chart shows that the customer frequency score distribution has different in each category of customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+
+#### Let's check the customer frequency score by various categories of Anonymized variable(X1) and customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(X1,
+             customer_category) %>%
+    select(X1,customer_category,
+           customer_frequency_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_frequency_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1", "median","q3"),
+  labeller = "label_value",
+  
+  facet.by = "X1",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)
+  ) ,legend = "bottom"
+)
+
+```
+
+#### The above chart shows that both customer categories have more number of outliers in the BA and F categories of Anonymized variable(X1).
+
+
+<br>
+
+
+### Customer Product Variation Score
+
+
+<br>
+
+
+
+#### Let's check the customer product variation score
+
+
+#### customer product variation score, the score based on varieties of products searched by the customer.
+
+
+#### for example will search for tv , furnitures,..
+
+
+
+#### Let's look quick summary of customer product variation score
+```{r}
+summary(train$customer_product_variation_score)
+
+```
+
+#### The summary shows no negative search score is there and the mean is 5.788.
+
+
+
+#### binwidth selected by using Freedman–Diaconis rule.
+
+```{r}
+customer_product_variation_scorebin<-hist(train$customer_product_variation_score,breaks = "FD",plot = F)
+
+```
+
+<br>
+
+
+```{r}
+customer_product_variation_score_his <- train %>%
+  na.omit() %>%
+  ggplot() +
+  aes(x = customer_product_variation_score) +
+  geom_histogram(breaks = customer_product_variation_scorebin$breaks,
+                 color="red",
+                 fill="lightcoral"
+                 
+  ) +
+  geom_vline(aes(xintercept = mean(customer_product_variation_score)),
+             col='blue',size=2)+
+  
+  theme_minimal() +
+  labs(x = "",
+       y = "",
+       subtitle = "Histogram",
+       title = "Customer Product Variation Score Distribution"
+  ) +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+
+
+
+
+customer_product_variation_score_box <- train %>%
+  ggplot(aes(y="",x= customer_product_variation_score,fill="lightcoral")) +
+  geom_boxplot(varwidth=T,
+               outlier.color  = "red",
+               outlier.size = 2) +
+  
+  stat_summary( geom="text", fun = box_summary ,
+                size=4,vjust=1,
+                #fun.args=list(probs=c(0,.5,.25,.75)),
+               aes(
+                  label=sprintf("%0.1f", ..x..))) +
+  labs(x = "Customer Product Variation Score",
+       y = "",
+       subtitle = "Box Plot",
+       caption = "Source: Hackerearth",
+       title = "") +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+customer_product_variation_score_his/customer_product_variation_score_box
+
+```
+
+
+#### The above histogram chart says that the customer product variation score is right-skewed(most of the customer product variation score falls below the mean).
+
+
+#### The boxplot explains there are outliers in the above upper limits.
+
+
+<br>
+
+
+#### Let's analyze the customer product variation score  with more than one variable.
+
+
+
+#### The following chart to analyze the customer product variation score by various customer_active_segment and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_product_variation_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ customer_active_segment)+
+  labs(x="Customer Product Variation Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Product Variation Score Distribution in Each Customer Segement")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+
+
+```
+
+
+#### The above chart shows that the customer product variation Score range has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+
+<br>
+
+
+#### In the next plot let's see any outlier points in customer product variation Score by various customer active segment and Customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(customer_active_segment,
+             customer_category) %>%
+    select(customer_active_segment,customer_category,
+           customer_product_variation_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_product_variation_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1", "median","q3"),
+  labeller = "label_value",
+  facet.by = "customer_active_segment",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)),
+  legend = "bottom"
+)
+```
+
+
+#### The above chart shows that the group 0 customer category has more number of outliers in all active Segments.
+
+<br>
+
+
+#### The following chart to analyze the customer product variation Score by various category of Anonymized variables(X1) and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_product_variation_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ X1)+
+  labs(x="Customer Product Variation Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Product Variation Score Distribution in Each Category of Anonymized variable(X1)")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+
+```
+
+
+
+#### The above chart shows that the customer product variation Score distribution has different in each category of customer active segment. Customer category classification also shows a lot of differences.
+
+
+#### Segment E has less range of customer product variation Score distribution.
+
+
+<br>
+
+
+#### Let's check the customer product variation Score by various categories of Anonymized variable(X1) and customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(X1,
+             customer_category) %>%
+    select(X1,customer_category,
+           customer_product_variation_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_product_variation_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1", "median","q3"),
+  labeller = "label_value",
+  
+  facet.by = "X1",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)
+  ) ,legend = "bottom"
+)
+```
+
+#### The above chart shows that the group 0 customer category has more number of outliers in the BA and F categories of Anonymized variable(X1).
+
+
+<br>
+
+
+### Customer Order Score
+
+
+<br>
+
+
+#### Let's check the customer order score
+
+#### customer order score, the score based on the number of successful order delivery which has ordered by the customer.
+
+
+#### Let's look quick summary of customer order score
+```{r}
+summary(train$customer_order_score)
+
+```
+
+#### The summary shows no negative order score are there and the mean is 3.1501
+
+
+
+#### binwidth selected by using Freedman–Diaconis rule.
+
+```{r}
+customer_order_scorebin<-hist(train$customer_order_score,breaks = "FD",plot = F)
+
+```
+
+<br>
+
+
+```{r}
+customer_order_score_his <- train %>%
+  na.omit() %>%
+  ggplot() +
+  aes(x = customer_order_score) +
+  geom_histogram(breaks = customer_order_scorebin$breaks,
+                 color="red",
+                 fill="lightcoral"
+                 
+  ) +
+  geom_vline(aes(xintercept = mean(customer_order_score)),
+             col='blue',size=2)+
+  
+  theme_minimal() +
+  labs(x = "",
+       y = "",
+       subtitle = "Histogram",
+       title = "Customer Order Score Distribution"
+  ) +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+
+
+
+
+customer_order_score_box <- train %>%
+  ggplot(aes(y="",x= customer_order_score,fill="lightcoral")) +
+  geom_boxplot(varwidth=T,
+               outlier.color  = "red",
+               outlier.size = 2) +
+  
+  stat_summary( geom="text", fun = box_summary ,
+                size=4,vjust=1,
+                #fun.args=list(probs=c(0,.5,.25,.75)),
+                aes(
+                  label=sprintf("%0.1f", ..x..))) +
+  labs(x = "Customer Order Score",
+       y = "",
+       subtitle = "Box Plot",
+       caption = "Source: Hackerearth",
+       title = "") +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+customer_order_score_his/customer_order_score_box
+
+```
+
+
+#### The above histogram chart says that the customer order score is normally distributed and there is no skewness
+
+
+#### The boxplot explains there are outliers in the above upper limits.
+
+
+<br>
+
+
+
+#### Let's analyze the customer order score with more than one variable.
+
+
+
+#### The following chart to analyze the customer order score by various customer_active_segment and customer category.
+
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_order_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ customer_active_segment)+
+  labs(x="Customer Order Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Order Score Distribution in Each Customer Segement")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+
+```
+
+
+#### The above chart shows that the customer order score range has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+#### In the next plot let's see any outlier points in customer order score by various customer_active_segment and Customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(customer_active_segment,
+             customer_category) %>%
+    select(customer_active_segment,customer_category,
+           customer_order_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_order_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q3", "median","q1"),
+  labeller = "label_value",
+  facet.by = "customer_active_segment",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)),
+  legend = "bottom"
+)
+```
+
+
+#### The above chart shows that the group 0 customer category has more number of outliers in all active Segments.
+
+
+#### group 1 have outliers in B, C, and D customer active segment.
+
+
+<br>
+
+
+#### The following chart to analyze the customer order score by various category of Anonymized variable(X1) and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_order_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ X1)+
+  labs(x="Customer Order Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Order Score Distribution in Each Category of Anonymized variable(X1)")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+
+```
+
+
+#### The above chart shows that the customer order score distribution has different in each category of Anonymized variable(X1). Customer category classification also shows a lot of differences.
+
+
+#### The category E have less range of customer order score distribution.
+
+
+<br>
+
+
+#### Let's check the customer order score by various categories of Anonymized variable(X1) and customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(X1,
+             customer_category) %>%
+    select(X1,customer_category,
+           customer_order_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_order_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1", "median","q3"),
+  labeller = "label_value",
+  
+  facet.by = "X1",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)
+  ) ,legend = "bottom"
+)
+```
+
+
+
+#### The above chart shows that the group 0 customer category has more number of outliers in the A, AA, BA categories of Anonymized variable(X1).
+
+#### group 1 has more outliers in BAF categories of Anonymized variable(X1).
+
+
+<br>
+
+
+
+### Customer Affinity Score
+
+
+
+<br>
+
+
+#### Let's check the customer affinity score
+
+
+#### customer affinity score, the score based on the affinity of the customer towards the website.
+
+
+
+#### Let's look quick summary of customer affinity score
+```{r}
+summary(train$customer_affinity_score)
+
+```
+
+##### The summary shows negative affinity score is there and the mean is 17.0618.
+
+
+
+#### binwidth selected by using Freedman–Diaconis rule.
+
+```{r}
+customer_affinity_scorebin<-hist(train$customer_affinity_score,breaks = "FD",plot = F)
+ 
+```
+
+<br>
+
+
+```{r}
+customer_affinity_score_his <- train %>%
+  na.omit() %>%
+  ggplot() +
+  aes(x = customer_affinity_score) +
+  geom_histogram(breaks = customer_affinity_scorebin$breaks,
+                 color="red",
+                 fill="lightcoral"
+                 
+  ) +
+  geom_vline(aes(xintercept = mean(customer_affinity_score)),
+             col='blue',size=2)+
+  
+  theme_minimal() +
+  labs(x = "",
+       y = "",
+       subtitle = "Histogram",
+       title = "Customer Affinity Score Distribution"
+  ) +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+
+customer_affinity_score_box <- train %>%
+  ggplot(aes(y="",x= customer_affinity_score,fill="lightcoral")) +
+  geom_boxplot(varwidth=T,
+               outlier.color  = "red",
+               outlier.size = 2) +
+  
+  stat_summary( geom="text", fun = box_summary ,
+                size=4,vjust=1,
+                #fun.args=list(probs=c(0,.5,.25,.75)),
+                aes(
+                  label=sprintf("%0.1f", ..x..))) +
+  labs(x = "Customer Affinity Score",
+       y = "",
+       subtitle = "Box Plot",
+       caption = "Source: Hackerearth",
+       title = "") +
+  theme_dark() +
+  theme(
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.caption = element_text(face = "bold"),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent")
+  )
+
+
+customer_affinity_score_his/customer_affinity_score_box
+
+
+```
+
+
+#### The above histogram chart says that the customer affinity score is right-skewed(most of customer affinity score falls below the mean)
+
+
+#### The boxplot explains there are outliers in the above upper limits .
+
+
+
+<br>
+
+
+
+#### Let's analyze the customer affinity score with more than one variable.
+
+
+#### The following chart to analyze the customer affinity score by various customer_active_segment and customer category.
+
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_affinity_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ customer_active_segment)+
+  labs(x="Customer Affinity Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Affinity Score Distribution in Each Customer Segement")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+```
+
+
+
+#### The above chart shows that the customer affinity score range has different in each customer active segment. Customer category classification also shows a lot of differences.
+
+
+<br>
+
+
+#### In the next plot let's see any outlier points in customer affinity score by various customer_active_segment and Customer category.
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(customer_active_segment,
+             customer_category) %>%
+    select(customer_active_segment,customer_category,
+           customer_affinity_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_affinity_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q3", "median","q1"),
+  labeller = "label_value",
+  facet.by = "customer_active_segment",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)),
+  legend = "bottom"
+)
+```
+
+
+#### The above chart shows that the group 0 customer category has more number of outliers in all active Segments.
+
+
+#### group 1 have outliers in B, C, and D customer active segment.
+
+<br>
+
+
+#### The following chart to analyze the customer affinity score by various category of Anonymized variable(X1) and customer category.
+
+
+```{r}
+train %>% mutate(customer_category =
+                   recode(customer_category,
+                          "0" = "Group_0",
+                          "1" = "Group_1")) %>%
+  na.omit() %>%
+  ggplot(aes(x = customer_affinity_score,
+             fill = customer_category)) +
+  geom_histogram(color = "black"
+  ) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap( ~ X1)+
+  labs(x="Customer Affinity Score",y="",caption = "Source: Hackerearth",
+       title = "Customer Affinity Score Distribution in Each Category of Anonymized variable(X1)")+
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title.x =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    legend.position = c(0.85,.20),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    strip.background.x = element_rect(fill = "tan1"),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    plot.caption = element_text(face = "bold"),
+    plot.title = element_text(face = "bold",hjust = 0.5),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank(),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = NA, color = NA)
+  )
+```
+
+
+#### The above chart shows that the customer affinity score distribution has different in each category of Anonymized variable(X1). Customer category classification also shows a lot of differences.
+
+
+#### The category E have less range customer affinity score distribution.
+
+
+<br>
+
+
+#### Let's check the customer affinity score by various categories of Anonymized variable(X1) and customer category.
+
+
+```{r}
+ggsummarystats(
+  train %>%
+    mutate(customer_category =
+             recode(customer_category,
+                    "0" = "Group_0",
+                    "1" = "Group_1")) %>%
+    group_by(X1,
+             customer_category) %>%
+    select(X1,customer_category,
+           customer_affinity_score) %>%
+    drop_na(),
+  x = "customer_category",
+  y = "customer_affinity_score",
+  ggfunc = ggboxplot,
+  fill = "customer_category", palette = "Dark2",
+  summaries = c("q1", "median","q3"),
+  labeller = "label_value",
+  
+  facet.by = "X1",
+  ggtheme = theme(axis.text = element_text(face = "bold"),
+                  #axis.title.x =  element_text(face = "bold"),
+                  axis.ticks = element_blank(),
+                  legend.position = c(0.85,.20),
+                  panel.grid = element_blank(),
+                  strip.text = element_text(face = "bold"),
+                  strip.background.x = element_rect(fill = "tan1"),
+                  plot.background = element_rect(fill = "lightgoldenrod"),
+                  panel.background = element_rect(fill = "transparent"),
+                  axis.line = element_blank(),
+                  legend.background = element_rect(fill = "transparent", colour = NA),
+                  legend.key = element_rect(fill = NA, color = NA)
+  ) ,legend = "bottom"
+)
+```
+
+
+##### The above chart shows that the group 0 customer category has more number of outliers in AA, E categories of Anonymized variable(X1).
+
+
+#### group_1 have more outliers in BA, F categories of Anonymized variable(X1).
+
+
+<br>
+
+
+### Customer Active Segment 
+
+
+<br>
+
+
+#### Let's check the customer active segment with customer category.
+
+
+
+```{r}
+train %>%
+  mutate(customer_category =
+           recode(customer_category,
+                  "0" = "Group_0",
+                  "1" = "Group_1")) %>%
+  group_by(customer_active_segment,
+           customer_category) %>%
+  summarise(counts=n()) %>% 
+  select(customer_active_segment,customer_category,counts) %>%
+  ggplot(aes(x=customer_active_segment,y=log(counts),
+             fill=customer_category,label=counts))+
+  geom_bar(stat =  "identity")+
+  geom_text(position="stack",vjust=1,fontface="bold")+
+  scale_fill_brewer(palette = "Dark2")+
+  labs(x="Customer Active Segment",
+       y="",caption = "Source: Hackerearth",
+       title = "Customer Active Segment With Customer Category")+
+  theme(axis.text.x =  element_text(face = "bold"),
+        axis.text.y =  element_blank(),
+        axis.title.x =  element_text(face = "bold"),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.background.x = element_rect(fill = "tan1"),
+        plot.caption = element_text(face = "bold"),
+        plot.title = element_text(face = "bold",hjust = 0.5),
+        plot.background = element_rect(fill = "lightgoldenrod"),
+        panel.background = element_rect(fill = "transparent"),
+        axis.line = element_blank(),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.key = element_rect(fill = NA, color = NA)
+  )
+  
+```
+
+
+#### The above chart explains that C segment has more number of group_0 and group_1 category customers and the A and AA segments have less number of group_1 category customers.
+
+
+
+#### NA values present in customer active segment variable.
+
+
+
+<br>
+
+
+### Anonymized Variable(X1)
+
+
+<br>
+
+
+#### Let's analyze the Anonymized Variable(X1) With Customer Category.
+
+
+```{r}
+train %>%
+  mutate(customer_category =
+           recode(customer_category,
+                  "0" = "Group_0",
+                  "1" = "Group_1")) %>%
+  group_by(
+    customer_category,X1) %>%
+  summarise(counts=n()) %>% 
+  select(X1,customer_category,counts) %>%
+  ggplot(aes(x=X1,y=log(counts),
+             fill=customer_category,label=counts))+
+  geom_bar(stat =  "identity")+
+  geom_text(fontface="bold",position = position_stack(vjust=0.5))+
+  scale_fill_brewer(palette = "Dark2")+
+  labs(x="Anonymized Variable(X1)",caption = "Source: Hackerearth",
+       y="",
+       title = "Anonymized Variable(X1) With Customer Category\n")+
+  theme(axis.text.x =  element_text(face = "bold"),
+        axis.text.y =  element_blank(),
+        axis.title.x =  element_text(face = "bold"),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.background.x = element_rect(fill = "tan1"),
+        plot.caption = element_text(face = "bold"),
+        plot.title = element_text(face = "bold",hjust = 0.5),
+        plot.background = element_rect(fill = "lightgoldenrod"),
+        panel.background = element_rect(fill = "transparent"),
+        plot.subtitle = element_text(face = "bold",hjust=0.5),
+        axis.line = element_blank(),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.key = element_rect(fill = NA, color = NA)
+  )
+
+```
+
+
+#### The above chart explains that the BA category of the anonymized variable(X1) has more number of customers in both customer groups.
+
+
+#### E category of the anonymized variable(X1) has less number of customers in group 1.
+
+
+#### NA values present in Anonymized variable(X1).
+
+
+
+#### Let's analyze the customer active segment and Anonymized Variable(X1) and see how many customers in group_0 and group_1.
+
+
+```{r}
+train %>%
+  mutate(customer_category =
+           recode(customer_category,
+                  "0" = "Group_0",
+                  "1" = "Group_1")) %>%
+  group_by(customer_active_segment,
+           customer_category,X1) %>%
+  summarise(counts=n()) %>% 
+  select(X1,customer_category,customer_active_segment,counts) %>%
+  ggplot(aes(x=customer_category,y=log(counts),
+             fill=customer_category,label=counts))+
+  geom_bar(stat =  "identity")+
+  geom_text(fontface="bold",position = position_stack(vjust = 1.15))+
+  scale_fill_brewer(palette = "Dark2")+
+  labs(x="Customer Active Segment",
+       y="Anonymized variable(X1)",caption = "Source: Hackerearth",
+       subtitle = "Customer Active Segment",
+       title = "Customer Active Segment With Customer Category")+
+  facet_grid(~customer_active_segment~X1,switch = "y")+
+  theme(axis.text.x =  element_text(face = "bold"),
+        axis.text.y =  element_blank(),
+        axis.title =  element_text(face = "bold"),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        strip.text = element_text(face = "bold"),
+        strip.background.x = element_rect(fill = "tan1"),
+        strip.background.y = element_rect(fill = "peru"),
+        plot.background = element_rect(fill = "lightgoldenrod"),
+        plot.caption = element_text(face = "bold"),
+        plot.title = element_text(face = "bold",hjust = 0.5),
+        plot.subtitle = element_text(face = "bold",hjust=0.5),
+        panel.background = element_rect(fill = "transparent"),
+        axis.line = element_blank(),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.key = element_rect(fill = NA, color = NA)
+  )
+
+
+```
+
+#### The above chart explains that in the Anonymized variable(X1)'s category A and AA, all categories of customer active segment have less number(less than 2) of group 1 category customers.
+
+<br>
+
+
+#### NA values present in both Anonymized variable(X1) and customer active segment variable.
+
+#### The following combo has doesn't have group 1 category customers.
+
+
+#### Anonymized variable(X1) A and customer active segment AA, E, F.
+
+
+#### Anonymized variable(X1) Aa and customer active segment A, AA, E.
+
+
+#### Anonymized variable(X1) D and customer active segment E.
+
+
+
+
+
+<br>
+
+
+### Correlation Analysis
+
+
+<br>
+
+
+#### Let's check the correlation between the numerical Variables.
+
+
+#### For correlation chart can use the ggcorrplot library.
+
+
+```{r}
+cor_score <- cor(train[,c(2:9)] %>% 
+                   rename_all(~str_remove_all(.,"customer_")) %>% 
+                drop_na())
+  
+ggcorrplot(cor_score,method = "square",
+         title="Correlation Between Numerical Variables",
+         ggtheme=theme(
+           axis.ticks = element_blank(),
+           axis.text =  element_text(face = "bold"),
+           panel.background = element_rect(fill = "transparent"),
+           axis.line = element_blank(),
+           legend.background = element_rect(fill = "transparent", colour = NA),
+           legend.key = element_rect(fill = NA, color = NA),
+           plot.background = element_rect(fill = "lightgoldenrod"),
+           plot.title = element_text(face="bold",hjust=0.5)))  
+
+```
+
+#### Positive correlations are displayed in violet and negative correlations in red color. Color intensity and the size of the circle are proportional to the correlation coefficients. 
+
+
+#### The Above correlation plot shows that stay scores and click-scores are highly negatively correlated
+
+
+<br>
+
+
+
+### Missing Value Analysis
+
+
+<br>
+
+
+#### Let's visualize the missing value count in each variable.
+
+
+```{r}
+train[,c(2:11)] %>%
+  gather(key = "key", value = "val") %>%
+  group_by(key) %>% 
+  summarise(counts = sum(is.na(val))) %>% 
+  filter(counts>0) %>% 
+  ggplot(aes(x= reorder(key,counts),y=counts,label=counts))+
+  geom_bar(stat="identity",fill="goldenrod")+
+  geom_text(hjust=1,fontface="bold")+
+  labs(
+    x="Variable Names",
+    y="Number of Missing Values",
+    title="Missing Vlaue Count",
+    caption  = "Source: Hackerearth"
+  )+
+  theme(
+    axis.text =  element_text(face = "bold"),
+    axis.title =  element_text(face = "bold"),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "lightgoldenrod"),
+    plot.title = element_text(face = "bold",hjust=0.5),
+    plot.caption  = element_text(face = "bold"),
+    panel.background = element_rect(fill = "transparent"),
+    axis.line = element_blank()
+  )+
+  coord_flip()
+  
+```
+
+
+  
+#### The above chart explains that the customer_order score has the highest missing values than other variables.
+  
+
+##  
+  
+
